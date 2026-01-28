@@ -43,7 +43,7 @@ public class ExpenseController {
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date endDate,
             @RequestParam(required = false) String category,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "20") int size,
             HttpServletRequest request) {
         Long currentUserId = (Long) request.getAttribute("userId");
         if (currentUserId == null) {
