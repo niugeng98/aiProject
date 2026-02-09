@@ -13,11 +13,30 @@ target/
 .springBeans
 .sts4-cache
 
-### IntelliJ IDEA ###
-.idea
-*.iws
+# IDE
+.idea/
 *.iml
-*.ipr
+.vscode/
+
+# Maven
+target/
+.mvn/
+
+# Gradle
+.gradle/
+build/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env (可选)
+application-prod.yml
+.env
 
 ### NetBeans ###
 /nbproject/private/

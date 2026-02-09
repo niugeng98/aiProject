@@ -10,7 +10,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
-import tools.jackson.databind.ObjectMapper;
+import cn.hutool.http.HttpRequest;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -129,6 +131,26 @@ public class UserController {
 
     private final String AppID = "wx8d62ac19cf81b731";
     private final String AppSecret = "6a6676fb2b8fb75a3bd8f314513f9e1d";
+    
+    // 获取微信接口调用凭证
+    private String getAccessToken(String appId, String appSecret) throws Exception {
+        String url = "https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=" + appId + "&secret=" + appSecret;
+        
+        // 使用HuTool的HttpRequest调用接口
+        String responseStr = HttpRequest.get(url)
+                .timeout(5000)
+                .execute()
+                .body();
+        
+        // 使用HuTool的JSONUtil解析JSON
+        JSONObject response = JSONUtil.parseObj(responseStr);
+        
+        if (response.containsKey("errcode") && !"0".equals(response.getStr("errcode"))) {
+            throw new Exception("获取access_token失败: " + response.getStr("errmsg"));
+        }
+        
+        return response.getStr("access_token");
+    }
 
     @PostMapping("/wechat-login")
     public ResponseEntity<Result<?>> wechatLogin(@RequestBody Map<String, String> requestData) {
@@ -139,6 +161,9 @@ public class UserController {
                 return ResponseEntity.badRequest().body(Result.error(400, "微信登录失败: 未提供code"));
             }
             
+            // 获取手机号 code
+            String phoneCode = requestData.get("phoneCode");
+            
             // 1. 微信小程序配置
             String appId = AppID;
             String appSecret = AppSecret;
@@ -146,52 +171,71 @@ public class UserController {
             // 2. 调用微信接口验证 code
             String url = "https://api.weixin.qq.com/sns/jscode2session?appid=" + appId + "&secret=" + appSecret + "&js_code=" + code + "&grant_type=authorization_code";
             
-            // 使用 Java 原生 HTTP 客户端调用微信接口
-            java.net.URL apiUrl = new java.net.URL(url);
-            java.net.HttpURLConnection connection = (java.net.HttpURLConnection) apiUrl.openConnection();
-            connection.setRequestMethod("GET");
-            connection.setConnectTimeout(5000);
-            connection.setReadTimeout(5000);
+            // 使用HuTool的HttpRequest调用接口
+            String responseStr = HttpRequest.get(url)
+                    .timeout(5000)
+                    .execute()
+                    .body();
             
-            // 读取响应（包括错误响应）
-            int responseCode = connection.getResponseCode();
-            java.io.BufferedReader reader;
-            if (responseCode == 200) {
-                reader = new java.io.BufferedReader(new java.io.InputStreamReader(connection.getInputStream()));
-            } else {
-                reader = new java.io.BufferedReader(new java.io.InputStreamReader(connection.getErrorStream()));
-            }
-            StringBuilder responseBuilder = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                responseBuilder.append(line);
-            }
-            reader.close();
-            connection.disconnect();
-            
-            // 解析微信返回的 JSON
-            ObjectMapper mapper = new ObjectMapper();
-            Map<String, Object> wechatResponse = mapper.readValue(responseBuilder.toString(), Map.class);
+            // 使用HuTool的JSONUtil解析JSON
+            JSONObject wechatResponse = JSONUtil.parseObj(responseStr);
             
             // 检查是否有错误
             if (wechatResponse.containsKey("errcode")) {
-                return ResponseEntity.badRequest().body(Result.error(400, "微信登录失败: " + wechatResponse.get("errmsg")));
+                return ResponseEntity.badRequest().body(Result.error(400, "微信登录失败: " + wechatResponse.getStr("errmsg")));
             }
             
             // 获取 openid
-            String openid = (String) wechatResponse.get("openid");
+            String openid = wechatResponse.getStr("openid");
             if (openid == null) {
                 return ResponseEntity.badRequest().body(Result.error(400, "微信登录失败: 未获取到openid"));
             }
             
-            // 3. 查找或创建用户
-            User user = userService.findByUsername(openid);
+            // 3. 获取手机号（如果有phoneCode）
+            String phoneNumber = null;
+            if (phoneCode != null && !phoneCode.isEmpty()) {
+                // 调用微信接口获取手机号
+                String phoneUrl = "https://api.weixin.qq.com/cgi-bin/wxa/business/getuserphonenumber?access_token=" + getAccessToken(appId, appSecret);
+                
+                // 构建请求体
+                JSONObject requestBody = new JSONObject();
+                requestBody.put("code", phoneCode);
+                
+                // 使用HuTool的HttpRequest调用接口
+                String phoneResponseStr = HttpRequest.post(phoneUrl)
+                        .timeout(5000)
+                        .contentType("application/json")
+                        .body(requestBody.toString())
+                        .execute()
+                        .body();
+                
+                // 使用HuTool的JSONUtil解析JSON
+                JSONObject phoneWechatResponse = JSONUtil.parseObj(phoneResponseStr);
+                if (phoneWechatResponse.containsKey("errcode") && !"0".equals(phoneWechatResponse.getStr("errcode"))) {
+                    return ResponseEntity.badRequest().body(Result.error(400, "获取手机号失败: " + phoneWechatResponse.getStr("errmsg")));
+                }
+                
+                // 提取手机号
+                JSONObject phoneInfo = phoneWechatResponse.getJSONObject("phone_info");
+                if (phoneInfo != null) {
+                    phoneNumber = phoneInfo.getStr("phoneNumber");
+                }
+            }
+            
+            // 4. 查找或创建用户
+            String username = openid;
+            if (phoneNumber != null) {
+                // 使用手机号作为用户名
+                username = phoneNumber;
+            }
+            
+            User user = userService.findByUsername(username);
             if (user == null) {
                 // 创建新用户
                 user = new User();
-                user.setUsername(openid);
-                user.setPassword(passwordEncoder.encode(openid)); // 使用 openid 作为密码
-                user.setEmail(openid + "@wechat.com");
+                user.setUsername(username);
+                user.setPassword(passwordEncoder.encode(username)); // 使用用户名作为密码
+                user.setEmail(username + "@wechat.com");
                 user = userService.register(user);
             }
             
