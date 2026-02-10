@@ -1,12 +1,10 @@
 package com.example.auth_demo.controller;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.example.auth_demo.common.Result;
 import com.example.auth_demo.entity.Income;
 import com.example.auth_demo.service.IncomeService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -39,7 +37,7 @@ public class IncomeController {
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date startDate,
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date endDate,
             @RequestParam(required = false) String category,
-            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             HttpServletRequest request) {
         Long currentUserId = (Long) request.getAttribute("userId");
@@ -48,8 +46,7 @@ public class IncomeController {
         }
         Long targetUserId = userId != null ? userId : currentUserId;
         
-        Pageable pageable = PageRequest.of(page, size);
-        Page<Income> incomes = incomeService.getIncomesByUserId(targetUserId, startDate, endDate, category, pageable);
+        IPage<Income> incomes = incomeService.getIncomesByUserId(targetUserId, startDate, endDate, category, page, size);
         return ResponseEntity.ok(Result.success(incomes));
     }
 

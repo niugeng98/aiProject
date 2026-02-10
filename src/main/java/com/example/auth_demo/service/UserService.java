@@ -1,7 +1,8 @@
 package com.example.auth_demo.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.example.auth_demo.entity.User;
-import com.example.auth_demo.repository.UserRepository;
+import com.example.auth_demo.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -9,29 +10,30 @@ import org.springframework.stereotype.Service;
 @Service
 public class UserService {
     @Autowired
-    private UserRepository userRepository;
+    private UserMapper userMapper;
     @Autowired
     private PasswordEncoder passwordEncoder;
 
     public User register(User user) {
         user.setPassword(passwordEncoder.encode(user.getPassword()));
-        return userRepository.save(user);
+        userMapper.insert(user);
+        return user;
     }
 
     public User findByUsername(String username) {
-        return userRepository.findByUsername(username);
+        return userMapper.selectByUsername(username);
     }
 
     public User findByEmail(String email) {
-        return userRepository.findByEmail(email);
+        return userMapper.selectByEmail(email);
     }
 
     public User findById(Long id) {
-        return userRepository.findById(id).orElse(null);
+        return userMapper.selectById(id);
     }
 
     public User updateProfile(Long userId, User user) {
-        User existingUser = userRepository.findById(userId).orElse(null);
+        User existingUser = userMapper.selectById(userId);
         if (existingUser == null) {
             return null;
         }
@@ -41,14 +43,15 @@ public class UserService {
         if (user.getUsername() != null) {
             existingUser.setUsername(user.getUsername());
         }
-        return userRepository.save(existingUser);
+        userMapper.updateById(existingUser);
+        return existingUser;
     }
 
     public void changePassword(Long userId, String newPassword) {
-        User user = userRepository.findById(userId).orElse(null);
+        User user = userMapper.selectById(userId);
         if (user != null) {
             user.setPassword(passwordEncoder.encode(newPassword));
-            userRepository.save(user);
+            userMapper.updateById(user);
         }
     }
 }

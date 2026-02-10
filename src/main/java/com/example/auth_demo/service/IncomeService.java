@@ -1,10 +1,11 @@
 package com.example.auth_demo.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.auth_demo.entity.Income;
-import com.example.auth_demo.repository.IncomeRepository;
+import com.example.auth_demo.mapper.IncomeMapper;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -13,7 +14,7 @@ import java.util.stream.Collectors;
 @Service
 public class IncomeService {
     @Autowired
-    private IncomeRepository incomeRepository;
+    private IncomeMapper incomeMapper;
 
     public Income addIncome(Income income) {
         if (income.getCreatedAt() == null) {
@@ -22,35 +23,43 @@ public class IncomeService {
         if (income.getIncomeDate() == null) {
             income.setIncomeDate(new Date());
         }
-        return incomeRepository.save(income);
+        incomeMapper.insert(income);
+        return income;
     }
 
     public List<Income> getIncomesByUserId(Long userId) {
-        return incomeRepository.findByUserId(userId);
+        return incomeMapper.selectByUserId(userId);
     }
 
-    public Page<Income> getIncomesByUserId(Long userId, Date startDate, Date endDate, String category, Pageable pageable) {
-        if (startDate != null && endDate != null && category != null && !category.isEmpty()) {
-            return incomeRepository.findByUserIdAndIncomeDateBetweenAndCategory(userId, startDate, endDate, category, pageable);
-        } else if (startDate != null && endDate != null) {
-            return incomeRepository.findByUserIdAndIncomeDateBetween(userId, startDate, endDate, pageable);
-        } else if (category != null && !category.isEmpty()) {
-            return incomeRepository.findByUserIdAndCategory(userId, category, pageable);
-        } else {
-            return incomeRepository.findByUserId(userId, pageable);
+    public IPage<Income> getIncomesByUserId(Long userId, Date startDate, Date endDate, String category, int page, int size) {
+        QueryWrapper<Income> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("user_id", userId);
+        
+        if (startDate != null && endDate != null) {
+            queryWrapper.between("income_date", startDate, endDate);
         }
+        
+        if (category != null && !category.isEmpty()) {
+            queryWrapper.eq("category", category);
+        }
+        
+        queryWrapper.orderByDesc("income_date");
+        
+        IPage<Income> incomePage = new Page<>(page, size);
+        return incomeMapper.selectPage(incomePage, queryWrapper);
     }
 
     public Income getIncomeById(Long id) {
-        return incomeRepository.findById(id).orElse(null);
+        return incomeMapper.selectById(id);
     }
 
     public Income updateIncome(Income income) {
-        return incomeRepository.save(income);
+        incomeMapper.updateById(income);
+        return income;
     }
 
     public void deleteIncome(Long id) {
-        incomeRepository.deleteById(id);
+        incomeMapper.deleteById(id);
     }
 
     public Map<String, Object> getMonthlyStatistics(Long userId, Integer year, Integer month) {
@@ -62,11 +71,25 @@ public class IncomeService {
             month = calendar.get(Calendar.MONTH) + 1;
         }
 
-        List<Income> incomes = incomeRepository.findByUserIdAndYearAndMonth(userId, year, month);
-        Double total = incomeRepository.getMonthlyTotal(userId, year, month);
-        if (total == null) {
-            total = 0.0;
-        }
+        // 构建月份的开始和结束时间
+        Calendar startCalendar = Calendar.getInstance();
+        startCalendar.set(year, month - 1, 1, 0, 0, 0);
+        Date startDate = startCalendar.getTime();
+        
+        Calendar endCalendar = Calendar.getInstance();
+        endCalendar.set(year, month - 1, startCalendar.getActualMaximum(Calendar.DAY_OF_MONTH), 23, 59, 59);
+        Date endDate = endCalendar.getTime();
+
+        // 查询当月的所有收入
+        QueryWrapper<Income> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("user_id", userId);
+        queryWrapper.between("income_date", startDate, endDate);
+        List<Income> incomes = incomeMapper.selectList(queryWrapper);
+
+        // 计算总金额
+        Double total = incomes.stream()
+                .mapToDouble(Income::getAmount)
+                .sum();
 
         Map<String, Object> result = new HashMap<>();
         result.put("year", year);
@@ -87,17 +110,43 @@ public class IncomeService {
             month = calendar.get(Calendar.MONTH) + 1;
         }
 
-        List<Object[]> results = incomeRepository.getCategoryStatistics(userId, year, month);
-        Double total = incomeRepository.getMonthlyTotal(userId, year, month);
+        // 构建月份的开始和结束时间
+        Calendar startCalendar = Calendar.getInstance();
+        startCalendar.set(year, month - 1, 1, 0, 0, 0);
+        Date startDate = startCalendar.getTime();
+        
+        Calendar endCalendar = Calendar.getInstance();
+        endCalendar.set(year, month - 1, startCalendar.getActualMaximum(Calendar.DAY_OF_MONTH), 23, 59, 59);
+        Date endDate = endCalendar.getTime();
+
+        // 查询当月的所有收入
+        QueryWrapper<Income> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("user_id", userId);
+        queryWrapper.between("income_date", startDate, endDate);
+        List<Income> incomes = incomeMapper.selectList(queryWrapper);
+
+        // 计算总金额
+        Double total = incomes.stream()
+                .mapToDouble(Income::getAmount)
+                .sum();
+
         if (total == null || total == 0) {
             return new ArrayList<>();
         }
 
-        return results.stream().map(row -> {
+        // 按类别分组统计
+        Map<String, Double> categoryMap = incomes.stream()
+                .collect(Collectors.groupingBy(
+                        Income::getCategory,
+                        Collectors.summingDouble(Income::getAmount)
+                ));
+
+        // 转换为需要的格式
+        return categoryMap.entrySet().stream().map(entry -> {
             Map<String, Object> stat = new HashMap<>();
-            stat.put("category", row[0]);
-            stat.put("amount", row[1]);
-            stat.put("percentage", ((Double) row[1] / total * 100));
+            stat.put("category", entry.getKey());
+            stat.put("amount", entry.getValue());
+            stat.put("percentage", (entry.getValue() / total * 100));
             return stat;
         }).collect(Collectors.toList());
     }

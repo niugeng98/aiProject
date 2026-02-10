@@ -1,14 +1,12 @@
 package com.example.auth_demo.controller;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.example.auth_demo.common.Result;
 import com.example.auth_demo.entity.Expense;
 import com.example.auth_demo.service.ExpenseService;
 import com.example.auth_demo.util.JwtUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -42,7 +40,7 @@ public class ExpenseController {
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date startDate,
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date endDate,
             @RequestParam(required = false) String category,
-            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             HttpServletRequest request) {
         Long currentUserId = (Long) request.getAttribute("userId");
@@ -52,8 +50,7 @@ public class ExpenseController {
         // 使用当前登录用户的ID
         Long targetUserId = userId != null ? userId : currentUserId;
         
-        Pageable pageable = PageRequest.of(page, size);
-        Page<Expense> expenses = expenseService.getExpensesByUserId(targetUserId, startDate, endDate, category, pageable);
+        IPage<Expense> expenses = expenseService.getExpensesByUserId(targetUserId, startDate, endDate, category, page, size);
         return ResponseEntity.ok(Result.success(expenses));
     }
 

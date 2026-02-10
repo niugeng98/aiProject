@@ -1,10 +1,11 @@
 package com.example.auth_demo.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.auth_demo.entity.Expense;
-import com.example.auth_demo.repository.ExpenseRepository;
+import com.example.auth_demo.mapper.ExpenseMapper;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -13,7 +14,7 @@ import java.util.stream.Collectors;
 @Service
 public class ExpenseService {
     @Autowired
-    private ExpenseRepository expenseRepository;
+    private ExpenseMapper expenseMapper;
 
     public Expense addExpense(Expense expense) {
         if (expense.getCreatedAt() == null) {
@@ -22,35 +23,43 @@ public class ExpenseService {
         if (expense.getExpenseDate() == null) {
             expense.setExpenseDate(new Date());
         }
-        return expenseRepository.save(expense);
+        expenseMapper.insert(expense);
+        return expense;
     }
 
     public List<Expense> getExpensesByUserId(Long userId) {
-        return expenseRepository.findByUserId(userId);
+        return expenseMapper.selectByUserId(userId);
     }
 
-    public Page<Expense> getExpensesByUserId(Long userId, Date startDate, Date endDate, String category, Pageable pageable) {
-        if (startDate != null && endDate != null && category != null && !category.isEmpty()) {
-            return expenseRepository.findByUserIdAndExpenseDateBetweenAndCategory(userId, startDate, endDate, category, pageable);
-        } else if (startDate != null && endDate != null) {
-            return expenseRepository.findByUserIdAndExpenseDateBetween(userId, startDate, endDate, pageable);
-        } else if (category != null && !category.isEmpty()) {
-            return expenseRepository.findByUserIdAndCategory(userId, category, pageable);
-        } else {
-            return expenseRepository.findByUserId(userId, pageable);
+    public IPage<Expense> getExpensesByUserId(Long userId, Date startDate, Date endDate, String category, int page, int size) {
+        QueryWrapper<Expense> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("user_id", userId);
+        
+        if (startDate != null && endDate != null) {
+            queryWrapper.between("expense_date", startDate, endDate);
         }
+        
+        if (category != null && !category.isEmpty()) {
+            queryWrapper.eq("category", category);
+        }
+        
+        queryWrapper.orderByDesc("expense_date");
+        
+        IPage<Expense> expensePage = new Page<>(page, size);
+        return expenseMapper.selectPage(expensePage, queryWrapper);
     }
 
     public Expense getExpenseById(Long id) {
-        return expenseRepository.findById(id).orElse(null);
+        return expenseMapper.selectById(id);
     }
 
     public Expense updateExpense(Expense expense) {
-        return expenseRepository.save(expense);
+        expenseMapper.updateById(expense);
+        return expense;
     }
 
     public void deleteExpense(Long id) {
-        expenseRepository.deleteById(id);
+        expenseMapper.deleteById(id);
     }
 
     public Map<String, Object> getMonthlyStatistics(Long userId, Integer year, Integer month) {
@@ -62,11 +71,25 @@ public class ExpenseService {
             month = calendar.get(Calendar.MONTH) + 1;
         }
 
-        List<Expense> expenses = expenseRepository.findByUserIdAndYearAndMonth(userId, year, month);
-        Double total = expenseRepository.getMonthlyTotal(userId, year, month);
-        if (total == null) {
-            total = 0.0;
-        }
+        // 构建月份的开始和结束时间
+        Calendar startCalendar = Calendar.getInstance();
+        startCalendar.set(year, month - 1, 1, 0, 0, 0);
+        Date startDate = startCalendar.getTime();
+        
+        Calendar endCalendar = Calendar.getInstance();
+        endCalendar.set(year, month - 1, startCalendar.getActualMaximum(Calendar.DAY_OF_MONTH), 23, 59, 59);
+        Date endDate = endCalendar.getTime();
+
+        // 查询当月的所有支出
+        QueryWrapper<Expense> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("user_id", userId);
+        queryWrapper.between("expense_date", startDate, endDate);
+        List<Expense> expenses = expenseMapper.selectList(queryWrapper);
+
+        // 计算总金额
+        Double total = expenses.stream()
+                .mapToDouble(Expense::getAmount)
+                .sum();
 
         Map<String, Object> result = new HashMap<>();
         result.put("year", year);
@@ -87,17 +110,43 @@ public class ExpenseService {
             month = calendar.get(Calendar.MONTH) + 1;
         }
 
-        List<Object[]> results = expenseRepository.getCategoryStatistics(userId, year, month);
-        Double total = expenseRepository.getMonthlyTotal(userId, year, month);
+        // 构建月份的开始和结束时间
+        Calendar startCalendar = Calendar.getInstance();
+        startCalendar.set(year, month - 1, 1, 0, 0, 0);
+        Date startDate = startCalendar.getTime();
+        
+        Calendar endCalendar = Calendar.getInstance();
+        endCalendar.set(year, month - 1, startCalendar.getActualMaximum(Calendar.DAY_OF_MONTH), 23, 59, 59);
+        Date endDate = endCalendar.getTime();
+
+        // 查询当月的所有支出
+        QueryWrapper<Expense> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("user_id", userId);
+        queryWrapper.between("expense_date", startDate, endDate);
+        List<Expense> expenses = expenseMapper.selectList(queryWrapper);
+
+        // 计算总金额
+        Double total = expenses.stream()
+                .mapToDouble(Expense::getAmount)
+                .sum();
+
         if (total == null || total == 0) {
             return new ArrayList<>();
         }
 
-        return results.stream().map(row -> {
+        // 按类别分组统计
+        Map<String, Double> categoryMap = expenses.stream()
+                .collect(Collectors.groupingBy(
+                        Expense::getCategory,
+                        Collectors.summingDouble(Expense::getAmount)
+                ));
+
+        // 转换为需要的格式
+        return categoryMap.entrySet().stream().map(entry -> {
             Map<String, Object> stat = new HashMap<>();
-            stat.put("category", row[0]);
-            stat.put("amount", row[1]);
-            stat.put("percentage", ((Double) row[1] / total * 100));
+            stat.put("category", entry.getKey());
+            stat.put("amount", entry.getValue());
+            stat.put("percentage", (entry.getValue() / total * 100));
             return stat;
         }).collect(Collectors.toList());
     }
