@@ -5,7 +5,7 @@ import com.example.auth_demo.entity.User;
 import com.example.auth_demo.service.LoginLogService;
 import com.example.auth_demo.service.UserService;
 import com.example.auth_demo.util.JwtUtil;
-import jakarta.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
