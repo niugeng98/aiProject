@@ -33,9 +33,20 @@ public class SecurityConfig {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // 添加CORS配置，允许跨域请求
+                .cors(cors -> cors.configurationSource(request -> {
+                    org.springframework.web.cors.CorsConfiguration config = new org.springframework.web.cors.CorsConfiguration();
+                    config.addAllowedOrigin("*");
+                    config.addAllowedMethod("*");
+                    config.addAllowedHeader("*");
+                    return config;
+                }))
                 .authorizeHttpRequests(auth -> auth
+                        // 明确指定所有HTTP方法，确保POST请求也被允许
                         .antMatchers("/api/users/register", "/api/users/login", "/api/users/wechat-login",
                                 "/register.html", "/login.html", "/profile.html", "/h2-console/**").permitAll()
+                        // 确保子路径也被允许
+                        .antMatchers("/api/users/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)

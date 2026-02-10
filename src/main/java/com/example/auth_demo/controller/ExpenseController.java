@@ -5,7 +5,7 @@ import com.example.auth_demo.common.Result;
 import com.example.auth_demo.entity.Expense;
 import com.example.auth_demo.service.ExpenseService;
 import com.example.auth_demo.util.JwtUtil;
-import jakarta.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
